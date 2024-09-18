@@ -1,106 +1,118 @@
-const express = require("express");
-const upload = require("express-fileupload");
-const docxConverter = require('docx-pdf');
-const path = require('path');
+const express = require('express');
+const multer = require('multer');
+const pdf = require('pdf-parse');
+const { Document, Packer, Paragraph, HeadingLevel } = require('docx');
 const fs = require('fs');
+const path = require('path');
+
 const app = express();
-
-app.use(express.urlencoded());
-app.use(express.static(__dirname + '/public'));
-
-const extend_pdf = '.pdf'
-const extend_docx = '.docx'
+const port = 3000;
 
 
-app.use(upload());
+app.use(express.static(path.join(__dirname, 'public')));
 
 
-
-app.get('/', function(req, res) {
-    res.sendFile(__dirname+ "/public/homePage.html");
-
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        cb(null, file.originalname);
+    },
 });
 
-app.post("/upload", (req, res) => {
-
-    if(req.files.upfile){
-      const file = req.files.upfile;
-      const name = file.name;
-      type = file.mimetype;
-      const uploadpath = __dirname + "/uploads/" + name;
-      const File_name = name.split('.')[0];
-      const Ext_name = ("." + name.split('.')[1]);
-
-      down_name = File_name;
-      file.mv(uploadpath, (err) => {
-        if(err) {
-          console.log("File upload failed!", name, err);
-        } else if(extend_docx !== Ext_name) {
-            console.log("This is not a word document!");
-            const delete_path_doc = process.cwd() + `/uploads/${down_name}${Ext_name}`;
-            console.log("That file with wrong format is deleted.");
-            try {
-              fs.unlinkSync(delete_path_doc)
-              
-              
-            } catch(err) {
-            console.error(err)
-            }
-            
-  
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, 
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype !== 'application/pdf') {
+            return cb(new Error('Only PDF files are allowed.'));
         }
-        else { 
-            console.log("File uploaded!", name);
-            const initialPath = path.join(__dirname, `./uploads/${File_name}${extend_docx}`);
-            const upload_path = path.join(__dirname, `./uploads/${File_name}${extend_pdf}`);
-            docxConverter(initialPath,upload_path,function(err,result){
-            if(err)
-            {
-                console.log(err);
-            }  else 
-            {
-                console.log('result'+result);
-                
-                res.sendFile(__dirname +'/public/downloadPage.html')
-            }
-           
-            });
-        }
-      })
-    } else {
-      
-      res.send("No file selected!");
-     
+        cb(null, true);
     }
-  })
-
-  app.get('/download', (req,res) =>{
-    
-   
-    res.download(__dirname + `/uploads/${down_name}${extend_pdf}`,`${down_name}${extend_pdf}`,(err) =>{
-      console.log(down_name);  
-      if(err){
-        res.send(err);
-
-      } else {
-
-        console.log('Docx file deleted');
-        const delete_path_doc = process.cwd() + `/uploads/${down_name}${extend_docx}`;
-
-        try {
-
-          fs.unlinkSync(delete_path_doc)
-
-        } catch(err) {
-        console.error(err)
-        }
-      }
-    })
-  })
-
-
-
-app.listen(3000, function(){
-    console.log("Server starter running on port 3000!");
 });
-   
+
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'homePage.html'));
+});
+
+
+app.get('/downloadPage', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'download.html'));
+});
+
+
+app.post('/upload', upload.single('pdfFile'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).send('No file uploaded.');
+    }
+
+    if (req.file.mimetype !== 'application/pdf') {
+        return res.status(400).send('Only PDF files are allowed.');
+    }
+
+    try {
+        const pdfPath = path.join(__dirname, 'uploads', req.file.filename);
+        const pdfBuffer = fs.readFileSync(pdfPath);
+        const data = await pdf(pdfBuffer);
+        const text = data.text;
+
+        const doc = new Document({
+            sections: [
+                {
+                    properties: {},
+                    children: [
+                        new Paragraph({
+                            text: text,
+                            heading: HeadingLevel.HEADING_1,
+                        }),
+                    ],
+                },
+            ],
+        });
+
+        const docxFilename = req.file.filename.replace('.pdf', '.docx');
+        const docxPath = path.join(__dirname, 'uploads', docxFilename);
+        const docxBuffer = await Packer.toBuffer(doc);
+        fs.writeFileSync(docxPath, docxBuffer);
+
+    
+        res.redirect(`/downloadPage?link=/download/${docxFilename}`);
+    } catch (error) {
+        console.error('Error during conversion:', error);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+
+app.get('/download/:filename', (req, res) => {
+    const filePath = path.join(__dirname, 'uploads', req.params.filename);
+    if (fs.existsSync(filePath)) {
+        res.download(filePath, (err) => {
+            if (err) {
+                console.error('Error downloading file:', err);
+            } else {
+                
+                fs.unlink(filePath, (unlinkErr) => {
+                    if (unlinkErr) {
+                        console.error('Error deleting file:', unlinkErr);
+                    } else {
+                        console.log('File deleted successfully after download:', req.params.filename);
+                    }
+                });
+            }
+        });
+    } else {
+        res.status(404).send('File not found.');
+    }
+});
+
+
+if (!fs.existsSync('uploads')) {
+    fs.mkdirSync('uploads');
+}
+
+app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+});

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Your DOCX File</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar">
+            <p class="navbar-text">PDF to Word Converter</p>
+        </nav>
+        <h1>Conversion Successful!</h1>
+        <p>Your PDF has been converted to a DOCX file. You can download it using the link below:</p>
+        
+        <div id="downloadLink">
+        
+        </div>
+
+        <script type="text/javascript">
+            document.addEventListener('DOMContentLoaded', function() {
+                
+                const urlParams = new URLSearchParams(window.location.search);
+                const downloadLink = urlParams.get('link');
+
+            
+                if (downloadLink) {
+                    document.getElementById('downloadLink').innerHTML = `<a href="${downloadLink}" download>Download</a>`;
+                } else {
+                    document.getElementById('downloadLink').innerHTML = '<p>No file available for download.</p>';
+                }
+            });
+        </script>
+    </div>
+</body>
+</html>
